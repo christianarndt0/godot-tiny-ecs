@@ -18,6 +18,10 @@ _global_script_class_icons={
 config/name="Godot-Tiny-ECS"
 config/icon="res://icon.png"
 
+[autoload]
+
+ECS="*res://ECS/ECS.gd"
+
 [rendering]
 
 environment/default_environment="res://default_env.tres"

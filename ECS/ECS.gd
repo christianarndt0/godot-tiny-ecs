@@ -1,19 +1,28 @@
 extends Node
 
 
+signal ecs_log
 signal entity_deleted
 
 
-const uuid = preload("res://addons/uuid/uuid.gd")
+enum {DEBUG, INFO, WARNING, ERROR}
 
 
-var component_paths = ["res://ECS/components/"] setget set_component_paths, get_component_paths
-
-
+# ecs data
 var _entities = {}  # entity id -> component dict
 var _entity_component_lut = {}  # entity id -> int for bitwise comparisons
 var _component_list = []  # ordered list of existing components
 var _component_jsons = {}  # component name -> default json as string
+
+# statistics (for uid generation)
+onready var _t0 = OS.get_system_time_msecs()
+var _entities_created = 0  # counter of created entities
+
+
+# initialize ECS
+func init(component_paths: Array):
+	# load component templates from json files
+	_load_json_components(component_paths)
 
 
 # save all currently existing entities
@@ -27,7 +36,7 @@ func save_state(file_name: String) -> void:
 	file.store_string(save)
 	file.close()
 	
-	Logger.info("Game saved to %s" % file_name)
+	emit_signal("ecs_log", INFO, "Game saved to %s" % file_name)
 	
 
 # restore entity states from file and re-create lut 
@@ -48,9 +57,9 @@ func load_state(file_name: String) -> void:
 		for id in entities():
 			# set bits in the lut
 			_entity_component_lut[id] = comp2bin(get_entity(id).keys())
-		Logger.info("Loaded save file from %s" % file_name)
+		emit_signal("ecs_log", INFO, "Loaded save file from %s" % file_name)
 	else:
-		Logger.error("Save file parsing failed")
+		emit_signal("ecs_log", ERROR, "Save file parsing failed")
 
 
 # convert an array of component names to a single integer bit vector that
@@ -65,26 +74,15 @@ func comp2bin(component_names: Array) -> int:
 			# set bit
 			bin = bin | (1 << index)
 		else:
-			Logger.warning("Component %s does not exist, ignoring it" % cn)
+			emit_signal("ecs_log", WARNING, "Component %s does not exist, ignoring it" % cn)
 			
-	Logger.debug("Components: %s -> int: %s" % [str(component_names), bin])
+	emit_signal("ecs_log", DEBUG, "Components: %s -> int: %s" % [str(component_names), bin])
 	return bin
-
-
-# load json components from the given paths
-func set_component_paths(paths: Array):
-	component_paths = paths
-	_load_json_components()
-	
-
-# get directories from which json components are loaded
-func get_component_paths() -> Array:
-	return component_paths
 
 
 # hard-reset all entities
 func reset_entities():
-	Logger.info("Hard-resetting all entities")
+	emit_signal("ecs_log", INFO, "Hard-resetting all entities")
 	_entities = {}
 	_entity_component_lut = {}
 	
@@ -96,23 +94,26 @@ func del_entity(id: String) -> void:
 	var ret2 = _entity_component_lut.erase(id)
 	
 	if ret1 and ret2:
-		Logger.info("Deleted entity %s" % id)
+		emit_signal("ecs_log", INFO, "Deleted entity %s" % id)
 		emit_signal("entity_deleted", id)
 	else:
-		Logger.warning("Trying to delete entity %s but it doesn't exist" % id)
+		emit_signal("ecs_log", WARNING, "Trying to delete entity %s but it doesn't exist" % id)
 
 
 # create a new entity with the given components and return the entitys id
 func new_entity(component_names: Array) -> String:
 	# generate new unique id for this entity
-	var id = uuid.v4()
+	var stamp = String(OS.get_unix_time())
+	var rnd = String(hash([_t0, _entities_created]))
+	var id = stamp + "-" + rnd
+	_entities_created += 1
 	
 	# create new (empty) entry for the new entity
 	_entities[id] = {}
 	_entity_component_lut[id] = 0  # 0 -> no bit is set -> no components attached
 	
 	# attach components
-	Logger.info("Created entity %s" % id)
+	emit_signal("ecs_log", INFO, "Created entity %s" % id)
 	attach(id, component_names)
 
 	return id
@@ -138,9 +139,9 @@ func attach(id: String, component_names: Array) -> void:
 			_entities[id][cn] = _component_jsons[cn].duplicate(true)
 			# set bit in the lut
 			_entity_component_lut[id] |= 1 << index
-			Logger.info("Added component %s to %s" % [cn, id])
+			emit_signal("ecs_log", INFO, "Added component %s to %s" % [cn, id])
 		else:
-			Logger.warning("Component %s does not exist, ignoring it" % cn)
+			emit_signal("ecs_log", WARNING, "Component %s does not exist, ignoring it" % cn)
 	
 
 # remove a list of components from an entity
@@ -153,9 +154,9 @@ func detach(id: String, component_names: Array) -> void:
 			_entities[id].erase(cn)
 			# clear bit in the lut
 			_entity_component_lut[id] &= ~(1 << index)
-			Logger.info("Removed component %s from %s" % [cn, id])
+			emit_signal("ecs_log", INFO, "Removed component %s from %s" % [cn, id])
 		else:
-			Logger.warning("Entity %s doesn't have component %s" % [id, cn])
+			emit_signal("ecs_log", WARNING, "Entity %s doesn't have component %s" % [id, cn])
 	
 
 # get the bit vector encoding the entitys components
@@ -166,16 +167,12 @@ func components_of(id: String) -> int:
 # return list of component names
 func components() -> Array:
 	return _component_jsons.keys()
-	
-
-func _ready():
-	_load_json_components()
 
 
-func _load_json_components():
+func _load_json_components(component_paths: Array):
 	# load json files as component templates from all given directories
 	for cp in component_paths:
-		Logger.info("Load components from %s" % cp)
+		emit_signal("ecs_log", INFO, "Load components from %s" % cp)
 		# get file names in this path
 		var files = []
 		var dir = Directory.new()
@@ -190,7 +187,7 @@ func _load_json_components():
 				files.append(file)
 			
 		dir.list_dir_end()
-		Logger.debug("Found %s" % str(files))
+		emit_signal("ecs_log", DEBUG, "Found %s" % str(files))
 		
 		# load json data
 		for fname in files:
@@ -207,6 +204,6 @@ func _load_json_components():
 					_component_list.append(comp_name)
 					_component_jsons[comp_name] = json
 			else:
-				Logger.error("JSON parsing failed on %s%s" % [cp, fname])
+				emit_signal("ecs_log", ERROR, "JSON parsing failed on %s%s" % [cp, fname])
 	
-	Logger.debug("new component list: %s" % str(_component_list))
+	emit_signal("ecs_log", DEBUG, "new component list: %s" % str(_component_list))
