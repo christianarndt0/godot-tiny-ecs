@@ -169,6 +169,24 @@ func components() -> Array:
 	return _component_jsons.keys()
 
 
+# match the components of an entity to a given bit vector
+func cmatch(id: String, vec: int, exactly=false) -> bool:
+	# get components of given entity
+	var vec_id = components_of(id)
+	# init return value
+	var ret = false
+
+	# match	
+	if exactly and vec == vec_id:
+		# entity components exactly equal to given bit vector
+		ret = true
+	elif vec_id & vec == vec:
+		# entity has the given components (but maybe more)
+		ret = true
+
+	return ret
+
+
 func _load_json_components(component_paths: Array):
 	# load json files as component templates from all given directories
 	for cp in component_paths:
