@@ -2,6 +2,7 @@ extends Node
 
 
 signal ecs_log
+signal ecs_ready
 signal entity_deleted
 
 
@@ -23,6 +24,7 @@ var _entities_created = 0  # counter of created entities
 func init(component_paths: Array):
 	# load component templates from json files
 	_load_json_components(component_paths)
+	emit_signal("ecs_ready")
 
 
 # save all currently existing entities
@@ -161,7 +163,10 @@ func detach(id: String, component_names: Array) -> void:
 
 # get the bit vector encoding the entitys components
 func components_of(id: String) -> int:
-	return _entity_component_lut[id]
+	if _entity_component_lut.has(id):
+		return _entity_component_lut[id]
+	else:
+		return 0
 	
 	
 # return list of component names
@@ -177,7 +182,9 @@ func cmatch(id: String, vec: int, exactly=false) -> bool:
 	var ret = false
 
 	# match	
-	if exactly and vec == vec_id:
+	if vec_id < 1:
+		pass
+	elif exactly and vec == vec_id:
 		# entity components exactly equal to given bit vector
 		ret = true
 	elif vec_id & vec == vec:
